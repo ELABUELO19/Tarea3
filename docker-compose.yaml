@@ -1,0 +1,108 @@
+version: "3"
+
+services:
+
+  scraper:
+    build: ./scraper
+    container_name: scraper
+    depends_on:
+      - storage
+      - redis
+    environment:
+      - MONGO_URI=mongodb://storage:27017
+      - REDIS_HOST=redis
+    networks:
+      - traffic-net
+
+  storage:
+    image: mongo:6
+    container_name: storage
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    networks:
+      - traffic-net
+
+  mongo-express:
+    image: mongo-express
+    container_name: mongo-express
+    depends_on:
+      - storage
+    ports:
+      - "8081:8081"
+    environment:
+      - ME_CONFIG_MONGODB_SERVER=storage
+      - ME_CONFIG_MONGODB_PORT=27017
+      - ME_CONFIG_BASICAUTH_USERNAME=admin #usuario y clave para ingresar a la base de datos
+      - ME_CONFIG_BASICAUTH_PASSWORD=admin123
+    networks:
+      - traffic-net
+
+  redis:
+    image: docker.io/bitnami/redis:7.4
+    container_name: redis
+    environment:
+      - ALLOW_EMPTY_PASSWORD=yes
+      - REDIS_DISABLE_COMMANDS=FLUSHDB,FLUSHALL
+      - REDIS_MAXMEMORY=512kb #Capacidad modificable
+      - REDIS_MAXMEMORY_POLICY=allkeys-lru #Politica modificable allkeys-random
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/bitnami/redis/data
+    networks:
+      - traffic-net
+
+  # Servicios añadidos para Elasticsearch, Kibana e Indexer
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:7.17.17
+    container_name: elasticsearch
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false  # desactiva seguridad en ES
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+    ports:
+      - "9200:9200"
+    networks:
+      - traffic-net
+
+  kibana:
+    image: docker.elastic.co/kibana/kibana:7.17.17
+    container_name: kibana
+    depends_on:
+      - elasticsearch
+    environment:
+      - ELASTICSEARCH_HOSTS=http://elasticsearch:9200
+      - xpack.security.enabled=false  # desactiva seguridad en Kibana
+    ports:
+      - "5601:5601"
+    networks:
+      - traffic-net
+
+  indexer:
+    build: ./indexer
+    container_name: indexer
+    depends_on:
+      - storage
+      - elasticsearch
+    environment:
+      - MONGO_URI=mongodb://storage:27017/waze_data
+      - ES_HOST=elasticsearch
+      - ES_PORT=9200
+    networks:
+      - traffic-net
+
+volumes:
+  mongo-data:
+  redis_data:
+  es_data:
+
+networks:
+  traffic-net:
+    driver: bridge
